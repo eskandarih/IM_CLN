@@ -1,0 +1,166 @@
+include "mod_motor_geom.edp"
+
+ofstream fidiMover("MoverL.dat");
+fidiMover.precision(15);
+
+int mm=12;          //第1,3,...,(2*n-1)調波を考慮する場合mm=2*n
+int NN=4;           //Cauer回路の段数
+
+real[int,int] lambda(mm,mm),invlambda(mm,mm),Lam(mm,mm);
+real[int] lamj(mm),invlamj(mm);
+
+fespace V1(Thr,P0);
+
+
+int [int] conpa(rotorSlots);
+int [int] ropa(rotorSlots);
+int [int] gaprtpa(rotorSlots);
+V1[int] inconpa(rotorSlots); 
+V1[int] inropa(rotorSlots); 
+V1[int] ingaprtpa(rotorSlots);
+V1 inconpal,inropal,ingaprtpal;
+
+int rot, shaft = Thr(0, 0).region;
+V1 inrot, inshaft, inrotall;
+
+//導体全体
+inconpal=0;
+for (n=0;n<rotorSlots;n++){ 
+    conpa(n) = Thr((rotorOut-rotorSlotDepth/2)*cos(n*rotorSlotTheta),(rotorOut-rotorSlotDepth/2)*sin(n*rotorSlotTheta)).region;
+    inconpa[n] = 1.0*(region==conpa(n));
+    inconpal=inconpal+inconpa[n];
+}
+
+
+//回転子鉄心 gap側全体
+int rotp = Thr((rotorOut+rotorShaft-rotorSlotDepth)/2,0).region;
+inrot=1.0*(region==rotp);
+
+//回転子gap 導体側全体
+int gaprtpal = Thr(rotorOut,0).region;
+ingaprtpal=1.0*(region==gaprtpal);
+inshaft = 1.0*(region==shaft);
+inrotall=inshaft+inrot+inconpal+ingaprtpal;
+
+
+V1 nuRT=inshaft*nuRTair+inrot*nuRTfe+inconpal*nuRTcon+ingaprtpal*nuRTair;
+V1 sigRT=inconpal*sigRTcon;
+
+
+// plot(sigRT,fill=1,cmm="sigRT");
+
+fespace Vh(Thr,P2);
+Vh AAz,w;
+Vh[int] Az(mm), A(mm);
+fespace Vhd(Thr,P2dc);
+Vhd[int] J0(3);
+Vhd[int] J(mm), E(mm);
+
+func fc=cos(p*(2*n+1)*atan(y/x));
+func fs=sin(p*(2*n+1)*atan(y/x));
+
+// /////////rotor domain//////////
+for(n=0;n<mm;n=n+1){ 
+  A[0]=0.0;	
+  E[0]=0.0;	
+}
+
+
+for(n=0;n<mm/2;n=n+1){ 
+
+  solve Prob1(AAz,w) = int2d(Thr)(nuRT*dx(AAz)*dx(w)+nuRT*dy(AAz)*dy(w))-int1d(Thr,SS)((fc)*w);
+ A[2*n]=AAz;
+
+  solve Prob2(AAz,w) = int2d(Thr)(nuRT*dx(AAz)*dx(w)+nuRT*dy(AAz)*dy(w))-int1d(Thr,SS)((fs)*w);
+  A[2*n+1]=AAz;
+
+}
+
+// plot(A[0],cmm="A[0]",fill=1,wait=1);
+// plot(A[2],cmm="A[2]",fill=1,wait=1);
+// plot(A[4],cmm="A[4]",fill=1,wait=1);
+// plot(A[6],cmm="A[6]",fill=1,wait=1);
+// plot(A[8],cmm="A[8]",fill=1,wait=1);
+int j,nn;
+
+for (i=0;i<mm;i=i+1){
+  for (j=0;j<mm;j=j+1){
+    lambda(i,j) = int2d(Thr)(nuRT*(dy(A[i])*dy(A[j])+dx(A[i])*dx(A[j])));
+  }
+}
+invlambda=lambda^-1;
+Lam=lambda/2;
+cout<<Lam<<endl;
+fidiMover<<Lam<<endl;
+
+for (i=0;i<mm;i=i+1){
+  for (j=0;j<mm;j=j+1){
+    E[i]=E[i]-(invlambda(i,j))*A[j];
+  }
+}
+
+// plot(E[0],cmm="E[0]",fill=1,wait=1);
+// plot(E[1],cmm="E[1]",fill=1,wait=1);
+// plot(E[2],cmm="E[2]",fill=1,wait=1);
+// plot(E[3],cmm="E[3]",fill=1,wait=1);
+// plot(E[4],cmm="E[4]",fill=1,wait=1);
+
+for (i=0;i<mm;i=i+1){
+  for (j=0;j<mm;j=j+1){
+    lambda(i,j) = int2d(Thr)(sigRT*E[i]*E[j]);
+  }
+}
+
+invlambda=lambda^-1;
+Lam=2*lambda;
+cout<<Lam<<endl;
+fidiMover<<Lam<<endl;
+
+
+for(nn=3;nn<=NN*2;nn=nn+2){
+
+  for (i=0;i<mm;i=i+1){
+    J[i]=0;
+    for (j=0;j<mm;j=j+1){
+      J[i]=J[i] + sigRT * (invlambda(i,j)) * E[j];
+    }
+  }
+
+//   plot(J[0],cmm="J[0]",fill=1,wait=1);
+//   plot(J[1],cmm="J[1]",fill=1,wait=1);
+//   plot(J[2],cmm="J[2]",fill=1,wait=1);
+//   plot(J[3],cmm="J[3]",fill=1,wait=1);
+//   plot(J[4],cmm="J[4]",fill=1,wait=1);
+
+  for(n=0;n<mm;n=n+1){
+    solve Probn(AAz,w) = int2d(Thr)(nuRT*dx(AAz)*dx(w)+nuRT*dy(AAz)*dy(w))-int2d(Thr)(w*J[n]);
+    A[n]=A[n]+AAz;
+  }
+
+  for (i=0;i<mm;i=i+1){
+    for (j=0;j<mm;j=j+1){
+      lambda(i,j) = int2d(Thr)(nuRT*(dy(A[i])*dy(A[j])+dx(A[i])*dx(A[j])));
+    }
+  }
+    invlambda=lambda^-1;
+    Lam=lambda/2;
+    cout<<Lam<<endl;
+    fidiMover<<Lam<<endl;
+
+  for (i=0;i<mm;i=i+1){
+    for (j=0;j<mm;j=j+1){
+      E[i]=E[i]-(invlambda(i,j))*A[j];	
+    }
+  }
+  for (i=0;i<mm;i=i+1){
+    for (j=0;j<mm;j=j+1){
+      lambda(i,j) = int2d(Thr)(sigRT*E[i]*E[j]);
+    }
+  }
+    invlambda=lambda^-1;
+    Lam=2*lambda;
+    cout<<Lam<<endl;
+    fidiMover<<Lam<<endl;
+
+  plot(A[0]);
+}

@@ -1,0 +1,249 @@
+load"UMFPACK64"
+load "lapack"
+//load "fflapack"
+
+//1度の回転に進むメッシュの数が整数になる必要あり
+
+real P=85e-6;
+int mm=12;          //第1,3,...,(2*n-1)調波を考慮する場合mm=2*n
+int NN=4;           //Cauer回路の段数
+
+    ofstream fidi("m85m11.dat");        // 格納用データセット
+    fidi.precision(15);
+
+  real ra =30.e-3;
+  real rb =15.5e-3;
+  real rco=22.5e-3;
+  real rcf=16.5e-3;
+  real rs =3e-3;
+  real ri =11e-3;
+  real rc =14e-3;
+  real rt =15e-3;
+  real rg =0.5e-3;
+  real rci=6e-3;
+  real rch=3e-3;
+  real rcg=1e-3;
+real F=50;
+real omega=2*pi*F;
+real p=2;
+
+real[int,int] lambda(mm,mm),invlambda(mm,mm),Lam(mm,mm);
+real[int] lamj(mm),invlamj(mm);
+int NSR=(rt+3*rg/5)/P+0.5;
+int i,j,n,nn;
+
+real sigRTall=0;
+real sigRTcon=4.e7;
+
+real nuRTair=1/(pi*4.e-7);
+real nuRTfe =1/(pi*4.e-4);
+real nuRTcon=1/(pi*4.e-7);
+
+real alpha=24;
+real beta =144;
+real gamma=36;
+real delta=40;
+real eps  =120;
+real iota =24;
+real kappa=144/5;
+real xi   =48;
+
+real a=2*pi/alpha;   //15°
+real b=2*pi/beta;    //2.5°
+real c=2*pi/gamma;   //10°
+real f=2*pi/kappa;   //12.5°
+real g=2*pi/xi;      //7.5°
+
+//rotor側　conductiong bar 4本
+real [int] aa(16),bb(16),cc(16),dd(16);
+for (n=1;n<16;n++){ aa(0)=2*pi/72; aa(n)=aa(n-1)+pi/8; } //5, 27.5, 50,...
+for (n=1;n<16;n++){ bb(0)=7*pi/72; bb(n)=bb(n-1)+pi/8; } //17.5, 40, 62.5,...
+for (n=1;n<16;n++){ cc(0)=3*pi/72; cc(n)=cc(n-1)+pi/8; } //7.5, 30, 52.5,...
+for (n=1;n<16;n++){ dd(0)=6*pi/72; dd(n)=dd(n-1)+pi/8; } //15 37.5, 60,...
+
+int [int] np(16),nq(16),nr(16),ns(16),nt(16),nv(16),nw(16),nx(16);
+for (n=0;n<16;n++){ np(n)=(ri/P/kappa); }
+for (n=0;n<16;n++){ nq(n)=(rch/P/6); }
+for (n=0;n<16;n++){ nr(n)=(2*rc/P/beta); }
+for (n=0;n<16;n++){ ns(n)=(2*rc/P/xi); }
+for (n=0;n<16;n++){ nt(n)=(2*rc/P/gamma); }
+for (n=0;n<16;n++){ nv(n)=(rcg/P/3); }
+for (n=0;n<16;n++){ nw(n)=3*rt/P/alpha; }
+for (n=0;n<16;n++){ nx(n)=3*rt/P/xi; }
+
+border SS(t=0,2*pi){x=(rt+3*rg/5)*cos(t); y=(rt+3*rg/5)*sin(t);}
+border s0(t=0,2*pi){x=rs*cos(t);             y=rs*sin(t);}
+
+border ss1(t=0,5*pi/72;i){x=ri*cos(aa[i]+t);  y=ri*sin(aa[i]+t);}
+border ss2(r=0,rch;i){x=(r+ri)*cos(aa[i]);    y=(r+ri)*sin(aa[i]);}
+border ss3(r=0,rch;i){x=(r+ri)*cos(bb[i]);    y=(r+ri)*sin(bb[i]);}
+border ss4(t=0,pi/72;i){x=rc*cos(aa[i]+t);    y=rc*sin(aa[i]+t);}
+border ss5(t=0,3*pi/72;i){x=rc*cos(cc[i]+t);    y=rc*sin(cc[i]+t);}
+border ss6(t=0,pi/72;i){x=rc*cos(dd[i]+t);    y=rc*sin(dd[i]+t);}
+border ss7(t=0,pi/18;i){x=rc*cos(bb[i]+t);    y=rc*sin(bb[i]+t);}
+border ss8(r=0,rcg;i){x=(r+rc)*cos(cc[i]);    y=(r+rc)*sin(cc[i]);}
+border ss9(r=0,rcg;i){x=(r+rc)*cos(dd[i]);    y=(r+rc)*sin(dd[i]);}
+border ss10(t=0,6*pi/72;i){x=rt*cos(dd[i]+t);    y=rt*sin(dd[i]+t);}
+border ss11(t=0,3*pi/72;i){x=rt*cos(cc[i]+t);   y=rt*sin(cc[i]+t);}
+
+//mesh Thrr=buildmesh(SS(4*(rt+3*rg/5)/P)+s0(-rs/P)+ss1(np)+ss2(nq)+ss3(nq)+ss4(nr)+ss5(ns)+ss6(nr)+ss7(nt)+ss8(nv)+ss9(nv)+ss10(nw)+ss11(nx));
+mesh Thrr=buildmesh(SS(4*NSR)+s0(rs/P)+ss1(np)+ss2(nq)+ss3(nq)+ss4(nr)+ss5(ns)+ss6(nr)+ss7(nt)+ss8(nv)+ss9(nv)+ss10(nw)+ss11(nx));
+
+plot(Thrr);
+//end;
+//conducting bar 4本
+
+fespace V1(Thrr,P0);
+//rotor
+
+//inconpal:  導体全体
+//inropal:   回転子鉄心 gap側全体
+//ingaprtpal:回転子gap 導体側全体
+//inshaft:   シャフト
+//inrot:     回転子鉄心全体
+//ingaprt:   回転子空隙全体
+//inrotall:  回転子全体
+
+int [int] conpa(16);
+int [int] ropa(16);
+int [int] gaprtpa(16);
+V1[int] inconpa(16); 
+V1[int] inropa(16); 
+V1[int] ingaprtpa(16);
+V1 inconpal,inropal,ingaprtpal;
+
+//導体全体
+for (n=0;n<16;n++){ 
+conpa(n) = Thrr((ri+rch/2)*cos(cc(n)),(ri+rch/2)*sin(cc(n))).region;
+inconpa[n] = 1.0*(region==conpa(n));
+inconpal=inconpal+inconpa[n];
+}
+
+//回転子鉄心 gap側全体
+for (n=0;n<16;n++){ 
+ropa(n) = Thrr((rc+rcg/2)*cos(bb(n)),(rc+rcg/2)*sin(bb(n))).region;
+inropa[n] = 1.0*(region==ropa(n));
+inropal=inropal+inropa[n];
+}
+
+//回転子gap 導体側全体
+for (n=0;n<16;n++){ 
+gaprtpa(n) = Thrr((rc+rcg/2)*cos((cc(n)+dd(n))/2),(rc+rcg/2)*sin((cc(n)+dd(n))/2)).region;
+ingaprtpa[n] = 1.0*(region==gaprtpa(n));
+ingaprtpal=ingaprtpal+ingaprtpa[n];
+}
+
+int rot = Thrr(0,2*rs).region;
+int shaft = Thrr(0, 0).region;
+int gaprt = Thrr(0, rt+rg/4).region;
+
+V1 inrot = 1.0*(region==rot) + inropal;
+V1 inshaft = 1.0*(region==shaft);
+V1 ingaprt = 1.0*(region==gaprt) + ingaprtpal;
+
+//V1 inrotall=inshaft+inrot+inconpal+ingaprtpal;
+
+V1 nuRT=(ingaprt+inshaft)*nuRTair+inrot*nuRTfe+inconpal*nuRTcon;
+//V1 nuRT=ingaprt*nuRTair+inrot*nuRTfe+inconpal*nuRTcon;
+V1 sigRT=inconpal*sigRTcon;
+
+//plot(sig,fill=1);
+//plot(nu,fill=1);
+//end;
+
+fespace Vh(Thrr,P2);
+Vh AAz,w;
+Vh[int] Az(mm), A(mm);
+fespace Vhd(Thrr,P2dc);
+Vhd[int] J0(3);
+Vhd[int] J(mm), E(mm);
+
+func fc=cos(p*(2*n+1)*atan(y/x));
+func fs=sin(p*(2*n+1)*atan(y/x));
+
+/////////rotor domain//////////
+for(n=0;n<mm;n=n+1){ 
+  A[0]=0.0;	
+  E[0]=0.0;	
+}
+
+
+for(n=0;n<mm/2;n=n+1){ 
+
+  solve Prob1(AAz,w) = int2d(Thrr)(nuRT*dx(AAz)*dx(w)+nuRT*dy(AAz)*dy(w))-int1d(Thrr,SS)((fc)*w)+on(s0,AAz=0);
+ A[2*n]=AAz;
+
+  solve Prob2(AAz,w) = int2d(Thrr)(nuRT*dx(AAz)*dx(w)+nuRT*dy(AAz)*dy(w))-int1d(Thrr,SS)((fs)*w)+on(s0,AAz=0);
+  A[2*n+1]=AAz;
+
+}
+
+plot(A[0]);
+
+for (i=0;i<mm;i=i+1){
+  for (j=0;j<mm;j=j+1){
+    lambda(i,j) = int2d(Thrr)(nuRT*(dy(A[i])*dy(A[j])+dx(A[i])*dx(A[j])));
+  }
+}
+    invlambda=lambda^-1;
+    Lam=lambda/2;
+    cout<<Lam<<endl;
+    fidi<<Lam<<endl;
+
+for (i=0;i<mm;i=i+1){
+  for (j=0;j<mm;j=j+1){
+    E[i]=E[i]-(invlambda(i,j))*A[j];
+  }
+}
+for (i=0;i<mm;i=i+1){
+  for (j=0;j<mm;j=j+1){
+    lambda(i,j) = int2d(Thrr)(sigRT*E[i]*E[j]);
+  }
+}
+    invlambda=lambda^-1;
+    Lam=2*lambda;
+    cout<<Lam<<endl;
+    fidi<<Lam<<endl;
+
+
+for(nn=3;nn<=NN*2;nn=nn+2){
+
+  for (i=0;i<mm;i=i+1){
+    J[i]=0;
+    for (j=0;j<mm;j=j+1){
+      J[i]=J[i] + sigRT * (invlambda(i,j)) * E[j];
+    }
+  }
+
+  for(n=0;n<mm;n=n+1){
+    solve Probn(AAz,w) = int2d(Thrr)(nuRT*dx(AAz)*dx(w)+nuRT*dy(AAz)*dy(w))-int2d(Thrr)(w*J[n])+on(s0,AAz=0);
+    A[n]=A[n]+AAz;
+  }
+
+  for (i=0;i<mm;i=i+1){
+    for (j=0;j<mm;j=j+1){
+      lambda(i,j) = int2d(Thrr)(nuRT*(dy(A[i])*dy(A[j])+dx(A[i])*dx(A[j])));
+    }
+  }
+    invlambda=lambda^-1;
+    Lam=lambda/2;
+    cout<<Lam<<endl;
+    fidi<<Lam<<endl;
+
+  for (i=0;i<mm;i=i+1){
+    for (j=0;j<mm;j=j+1){
+      E[i]=E[i]-(invlambda(i,j))*A[j];	
+    }
+  }
+  for (i=0;i<mm;i=i+1){
+    for (j=0;j<mm;j=j+1){
+      lambda(i,j) = int2d(Thrr)(sigRT*E[i]*E[j]);
+    }
+  }
+    invlambda=lambda^-1;
+    Lam=2*lambda;
+    cout<<Lam<<endl;
+    fidi<<Lam<<endl;
+
+  plot(A[0]);
+}

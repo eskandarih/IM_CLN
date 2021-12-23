@@ -1,0 +1,287 @@
+load"UMFPACK64"
+load "lapack"
+
+ofstream fidi("p85s06.dat");   // 格納用データセット
+
+
+// rotor parameters
+int rotorSlots = 17*2;
+real rotorSlotTheta = 2*pi / rotorSlots;
+real rotorOut = 34.7e-3;
+real rotorShaft = 3e-3;
+real rotorYoke = 22e-3;
+real rotorToothLength = 0.2e-3;
+real rotorSlotOpeing = 0.5e-3;
+real rotorSlotOuterRadius = 1.0e-3;
+real rotorSlotDepth = 6.5e-3;
+real Gap = 0.3e-3;
+real airGap = rotorOut+Gap/2.;
+
+// stator parameters
+int statorSlots = 24;
+real statorSlotTheta = 2*pi / statorSlots;
+real statorIn = rotorOut+Gap;                  // rb
+real statorOut = statorIn+19e-3;               // ra
+real statorToothLength = 0.8e-3;            // 
+real statorSlotOpeing = 1e-3;
+real statorSlotInnerRadius = 1.0e-3;
+real statorSlotDepth = 12e-3;             // rci
+
+// material properties
+real sigRTall=0;
+real sigRTcon=4.e7;
+real sigSTall=0;
+
+real nuSTfe =1/(pi*4.e-4);
+real nuSTair=1/(pi*4.e-7);
+real nuSTco =1/(pi*4.e-7);
+real nuRTair=1/(pi*4.e-7);
+real nuRTfe =1/(pi*4.e-4);
+real nuRTcon=1/(pi*4.e-7);
+
+// excitation
+int N=90;           //1時間周期の分割数         
+int per=3;          //計算する時間周期
+real s=0.5;         //slip
+real F=50;          //周波数
+real omega=2*pi*F;  //角周波数
+real p=2;           //極対数(p=2で4極)
+real tq, tqave=0.0;
+
+int i,n;
+
+// number of points in different sections of rotor geometry
+int [int] npRotorSlot(rotorSlots), npBottomCurveRotorSlot(rotorSlots);
+int [int] npToothiTipRotor(rotorSlots), npTopCurveRotorSlot(rotorSlots);
+int [int] npRotorWedgeDepth(rotorSlots);
+for (n=0;n<rotorSlots;n++){ 
+    npRotorSlot(n)=5;
+    npBottomCurveRotorSlot(n)=2;
+    npTopCurveRotorSlot(n)=5;
+    npToothiTipRotor(n)=10;
+    npRotorWedgeDepth(n)=2;
+}
+
+// number of points in different sections of stator geometry
+int [int] npStatorSlot(statorSlots), npBottomCurveStatorSlot(statorSlots);
+int [int] npToothiTipStator(statorSlots), npTopCurveStatorSlot(statorSlots);
+int [int] npStatorWedgeDepth(statorSlots);
+for (n=0;n<statorSlots;n++){ 
+    npStatorSlot(n)=5;
+    npBottomCurveStatorSlot(n)=4;
+    npTopCurveStatorSlot(n)=4;
+    npToothiTipStator(n)=10;
+    npStatorWedgeDepth(n)=2;
+}
+
+// rotor points
+real [int] rP1xs(rotorSlots),rP1ys(rotorSlots);
+real [int] rP2xs(rotorSlots),rP2ys(rotorSlots);
+real [int] rcoilP2xs(rotorSlots),rcoilP2ys(rotorSlots);
+real [int] rP3xs(rotorSlots),rP3ys(rotorSlots);
+real [int] rP4xs(rotorSlots),rP4ys(rotorSlots);
+real [int] rP5xs(rotorSlots),rP5ys(rotorSlots);
+real [int] rP6xs(rotorSlots),rP6ys(rotorSlots);
+real [int] rP7xs(rotorSlots),rP7ys(rotorSlots);
+real [int] rP8xs(rotorSlots),rP8ys(rotorSlots);
+real [int] rP9xs(rotorSlots),rP9ys(rotorSlots);
+real [int] rP10xs(rotorSlots),rP10ys(rotorSlots);
+real [int] rP11xs(rotorSlots),rP11ys(rotorSlots);
+real [int] rP12xs(rotorSlots),rP12ys(rotorSlots);
+real [int] rP13xs(rotorSlots),rP13ys(rotorSlots);
+real [int] rP14xs(rotorSlots),rP14ys(rotorSlots);
+
+real rP1theta = asin(rotorSlotOpeing/rotorOut);
+real rP1x = rotorOut*cos(rP1theta);
+real rP1y = rotorOut*sin(rP1theta);
+
+real rP2x = rP1x - rotorToothLength;
+real rP2y = rP1y;
+
+real rP3x = rP2x - rotorSlotOuterRadius;
+real rP3y = rP1y;
+
+real rP4x = rP3x + rotorSlotOuterRadius*cos(pi/2.+rotorSlotTheta);
+real rP4y = rP3y + rotorSlotOuterRadius*sin(pi/2.+rotorSlotTheta);
+
+real rotorToothWidth = 2 * abs(rP4y - rP4x * sin(rotorSlotTheta/2.)) / sqrt(1 + (sin(rotorSlotTheta/2.)^2)); 
+real rotorSlotInnerRadius = ((rotorOut-rotorToothLength-rotorSlotDepth)*sin(rotorSlotTheta/2.) - rotorToothWidth/2.0) / (1-sin(rotorSlotTheta/2.));
+
+real rP5x = rotorOut - rotorToothLength - rotorSlotDepth + rotorSlotInnerRadius;
+real rP5y = 0;
+
+real rP6x = rP5x + rotorSlotInnerRadius*cos(pi/2.+rotorSlotTheta);
+real rP6y = rP5y + rotorSlotInnerRadius*sin(pi/2.+rotorSlotTheta);
+
+real rP7x = rP5x - rotorSlotInnerRadius;
+real rP7y = 0;
+
+real rP8x = rP1x*cos(rotorSlotTheta) + rP1y*sin(rotorSlotTheta);
+real rP8y = rP1x*sin(rotorSlotTheta) - rP1y*cos(rotorSlotTheta);
+
+real rP9x = rP2x*cos(rotorSlotTheta) + rP2y*sin(rotorSlotTheta);
+real rP9y = rP2x*sin(rotorSlotTheta) - rP2y*cos(rotorSlotTheta);
+
+real rP10x = rP3x*cos(rotorSlotTheta) + rP3y*sin(rotorSlotTheta);
+real rP10y = rP3x*sin(rotorSlotTheta) - rP3y*cos(rotorSlotTheta);
+
+real rP11x = rP4x*cos(rotorSlotTheta) + rP4y*sin(rotorSlotTheta);
+real rP11y = rP4x*sin(rotorSlotTheta) - rP4y*cos(rotorSlotTheta);
+
+real rP12x = rP5x*cos(rotorSlotTheta) + rP5y*sin(rotorSlotTheta);
+real rP12y = rP5x*sin(rotorSlotTheta) - rP5y*cos(rotorSlotTheta);
+
+real rP13x = rP6x*cos(rotorSlotTheta) + rP6y*sin(rotorSlotTheta);
+real rP13y = rP6x*sin(rotorSlotTheta) - rP6y*cos(rotorSlotTheta);
+
+real rP14x = rP7x*cos(rotorSlotTheta) + rP7y*sin(rotorSlotTheta);
+real rP14y = rP7x*sin(rotorSlotTheta) - rP7y*cos(rotorSlotTheta);
+
+
+// stator points
+real [int] sP1xs(statorSlots),sP1ys(statorSlots);
+real [int] sP2xs(statorSlots),sP2ys(statorSlots);
+real [int] scoilP2xs(statorSlots),scoilP2ys(statorSlots);
+real [int] sP3xs(statorSlots),sP3ys(statorSlots);
+real [int] sP4xs(statorSlots),sP4ys(statorSlots);
+real [int] sP5xs(statorSlots),sP5ys(statorSlots);
+real [int] sP6xs(statorSlots),sP6ys(statorSlots);
+real [int] sP7xs(statorSlots),sP7ys(statorSlots);
+real [int] sP8xs(statorSlots),sP8ys(statorSlots);
+real [int] sP9xs(statorSlots),sP9ys(statorSlots);
+real [int] sP10xs(statorSlots),sP10ys(statorSlots);
+real [int] sP11xs(statorSlots),sP11ys(statorSlots);
+real [int] sP12xs(statorSlots),sP12ys(statorSlots);
+real [int] sP13xs(statorSlots),sP13ys(statorSlots);
+real [int] sP14xs(statorSlots),sP14ys(statorSlots);
+
+real sP1theta = asin(statorSlotOpeing/statorIn);
+real sP1x = statorIn*cos(sP1theta);
+real sP1y = statorIn*sin(sP1theta);
+
+real sP2x = sP1x + statorToothLength;
+real sP2y = sP1y;
+
+real sP3x = sP2x + statorSlotInnerRadius;
+real sP3y = sP1y;
+
+real sP4x = sP3x + statorSlotInnerRadius*cos(pi/2.+statorSlotTheta);
+real sP4y = sP3y + statorSlotInnerRadius*sin(pi/2.+statorSlotTheta);
+
+real statorToothWidth = 2 * abs(sP4y - sP4x * sin(statorSlotTheta/2.)) / sqrt(1 + (sin(statorSlotTheta/2.)^2)); 
+real statorSlotOuterRadius = ((statorIn+statorToothLength+statorSlotDepth)*sin(statorSlotTheta/2.) - statorToothWidth/2.0) / (1+sin(statorSlotTheta/2.));
+
+real sP5x = statorIn + statorToothLength + statorSlotDepth - statorSlotOuterRadius;
+real sP5y = 0;
+
+real sP6x = sP5x + statorSlotOuterRadius*cos(pi/2.+statorSlotTheta);
+real sP6y = sP5y + statorSlotOuterRadius*sin(pi/2.+statorSlotTheta);
+
+real sP7x = sP5x + statorSlotOuterRadius;
+real sP7y = 0;
+
+real sP8x = sP1x*cos(statorSlotTheta) + sP1y*sin(statorSlotTheta);
+real sP8y = sP1x*sin(statorSlotTheta) - sP1y*cos(statorSlotTheta);
+
+real sP9x = sP2x*cos(statorSlotTheta) + sP2y*sin(statorSlotTheta);
+real sP9y = sP2x*sin(statorSlotTheta) - sP2y*cos(statorSlotTheta);
+
+real sP10x = sP3x*cos(statorSlotTheta) + sP3y*sin(statorSlotTheta);
+real sP10y = sP3x*sin(statorSlotTheta) - sP3y*cos(statorSlotTheta);
+
+real sP11x = sP4x*cos(statorSlotTheta) + sP4y*sin(statorSlotTheta);
+real sP11y = sP4x*sin(statorSlotTheta) - sP4y*cos(statorSlotTheta);
+
+real sP12x = sP5x*cos(statorSlotTheta) + sP5y*sin(statorSlotTheta);
+real sP12y = sP5x*sin(statorSlotTheta) - sP5y*cos(statorSlotTheta);
+
+real sP13x = sP6x*cos(statorSlotTheta) + sP6y*sin(statorSlotTheta);
+real sP13y = sP6x*sin(statorSlotTheta) - sP6y*cos(statorSlotTheta);
+
+real sP14x = sP7x*cos(statorSlotTheta) + sP7y*sin(statorSlotTheta);
+real sP14y = sP7x*sin(statorSlotTheta) - sP7y*cos(statorSlotTheta);
+
+
+// rotor lines
+for (n=0;n<rotorSlots;n++){ rP1xs(n)=rP1x*cos(n*rotorSlotTheta) - rP1y*sin(n*rotorSlotTheta); rP1ys(n) = rP1x*sin(n*rotorSlotTheta) + rP1y*cos(n*rotorSlotTheta);}
+for (n=0;n<rotorSlots;n++){ rP2xs(n)=rP2x*cos(n*rotorSlotTheta) - rP2y*sin(n*rotorSlotTheta); rP2ys(n) = rP2x*sin(n*rotorSlotTheta) + rP2y*cos(n*rotorSlotTheta);}
+for (n=0;n<rotorSlots;n++){ rP2xs(n)=rP2x*cos(n*rotorSlotTheta) - rP2y*sin(n*rotorSlotTheta); rP2ys(n) = rP2x*sin(n*rotorSlotTheta) + rP2y*cos(n*rotorSlotTheta);}
+for (n=0;n<rotorSlots;n++){ rP3xs(n)=rP3x*cos(n*rotorSlotTheta) - rP3y*sin(n*rotorSlotTheta); rP3ys(n) = rP3x*sin(n*rotorSlotTheta) + rP3y*cos(n*rotorSlotTheta);}
+for (n=0;n<rotorSlots;n++){ rP4xs(n)=rP4x*cos(n*rotorSlotTheta) - rP4y*sin(n*rotorSlotTheta); rP4ys(n) = rP4x*sin(n*rotorSlotTheta) + rP4y*cos(n*rotorSlotTheta);}
+for (n=0;n<rotorSlots;n++){ rP5xs(n)=rP5x*cos(n*rotorSlotTheta) - rP5y*sin(n*rotorSlotTheta); rP5ys(n) = rP5x*sin(n*rotorSlotTheta) + rP5y*cos(n*rotorSlotTheta);}
+for (n=0;n<rotorSlots;n++){ rP6xs(n)=rP6x*cos(n*rotorSlotTheta) - rP6y*sin(n*rotorSlotTheta); rP6ys(n) = rP6x*sin(n*rotorSlotTheta) + rP6y*cos(n*rotorSlotTheta);}
+for (n=0;n<rotorSlots;n++){ rP7xs(n)=rP7x*cos(n*rotorSlotTheta) - rP7y*sin(n*rotorSlotTheta); rP7ys(n) = rP7x*sin(n*rotorSlotTheta) + rP7y*cos(n*rotorSlotTheta);}
+for (n=0;n<rotorSlots;n++){ rP8xs(n)=rP8x*cos(n*rotorSlotTheta) - rP8y*sin(n*rotorSlotTheta); rP8ys(n) = rP8x*sin(n*rotorSlotTheta) + rP8y*cos(n*rotorSlotTheta);}
+for (n=0;n<rotorSlots;n++){ rP9xs(n)=rP9x*cos(n*rotorSlotTheta) - rP9y*sin(n*rotorSlotTheta); rP9ys(n) = rP9x*sin(n*rotorSlotTheta) + rP9y*cos(n*rotorSlotTheta);}
+for (n=0;n<rotorSlots;n++){ rP10xs(n)=rP10x*cos(n*rotorSlotTheta) - rP10y*sin(n*rotorSlotTheta); rP10ys(n) = rP10x*sin(n*rotorSlotTheta) + rP10y*cos(n*rotorSlotTheta);}
+for (n=0;n<rotorSlots;n++){ rP11xs(n)=rP11x*cos(n*rotorSlotTheta) - rP11y*sin(n*rotorSlotTheta); rP11ys(n) = rP11x*sin(n*rotorSlotTheta) + rP11y*cos(n*rotorSlotTheta);}
+for (n=0;n<rotorSlots;n++){ rP12xs(n)=rP12x*cos(n*rotorSlotTheta) - rP12y*sin(n*rotorSlotTheta); rP12ys(n) = rP12x*sin(n*rotorSlotTheta) + rP12y*cos(n*rotorSlotTheta);}
+for (n=0;n<rotorSlots;n++){ rP13xs(n)=rP13x*cos(n*rotorSlotTheta) - rP13y*sin(n*rotorSlotTheta); rP13ys(n) = rP13x*sin(n*rotorSlotTheta) + rP13y*cos(n*rotorSlotTheta);}
+for (n=0;n<rotorSlots;n++){ rP14xs(n)=rP14x*cos(n*rotorSlotTheta) - rP14y*sin(n*rotorSlotTheta); rP14ys(n) = rP14x*sin(n*rotorSlotTheta) + rP14y*cos(n*rotorSlotTheta);}
+for (n=0;n<rotorSlots;n++){ rcoilP2xs(n)=rP2x*cos(n*rotorSlotTheta) + rP2y*sin(n*rotorSlotTheta); rcoilP2ys(n) = rP2x*sin(n*rotorSlotTheta) - rP2y*cos(n*rotorSlotTheta);}
+
+// stator lines
+for (n=0;n<statorSlots;n++){ sP1xs(n)=sP1x*cos(n*statorSlotTheta) - sP1y*sin(n*statorSlotTheta); sP1ys(n) = sP1x*sin(n*statorSlotTheta) + sP1y*cos(n*statorSlotTheta);}
+for (n=0;n<statorSlots;n++){ sP2xs(n)=sP2x*cos(n*statorSlotTheta) - sP2y*sin(n*statorSlotTheta); sP2ys(n) = sP2x*sin(n*statorSlotTheta) + sP2y*cos(n*statorSlotTheta);}
+for (n=0;n<statorSlots;n++){ sP2xs(n)=sP2x*cos(n*statorSlotTheta) - sP2y*sin(n*statorSlotTheta); sP2ys(n) = sP2x*sin(n*statorSlotTheta) + sP2y*cos(n*statorSlotTheta);}
+for (n=0;n<statorSlots;n++){ sP3xs(n)=sP3x*cos(n*statorSlotTheta) - sP3y*sin(n*statorSlotTheta); sP3ys(n) = sP3x*sin(n*statorSlotTheta) + sP3y*cos(n*statorSlotTheta);}
+for (n=0;n<statorSlots;n++){ sP4xs(n)=sP4x*cos(n*statorSlotTheta) - sP4y*sin(n*statorSlotTheta); sP4ys(n) = sP4x*sin(n*statorSlotTheta) + sP4y*cos(n*statorSlotTheta);}
+for (n=0;n<statorSlots;n++){ sP5xs(n)=sP5x*cos(n*statorSlotTheta) - sP5y*sin(n*statorSlotTheta); sP5ys(n) = sP5x*sin(n*statorSlotTheta) + sP5y*cos(n*statorSlotTheta);}
+for (n=0;n<statorSlots;n++){ sP6xs(n)=sP6x*cos(n*statorSlotTheta) - sP6y*sin(n*statorSlotTheta); sP6ys(n) = sP6x*sin(n*statorSlotTheta) + sP6y*cos(n*statorSlotTheta);}
+for (n=0;n<statorSlots;n++){ sP7xs(n)=sP7x*cos(n*statorSlotTheta) - sP7y*sin(n*statorSlotTheta); sP7ys(n) = sP7x*sin(n*statorSlotTheta) + sP7y*cos(n*statorSlotTheta);}
+for (n=0;n<statorSlots;n++){ sP8xs(n)=sP8x*cos(n*statorSlotTheta) - sP8y*sin(n*statorSlotTheta); sP8ys(n) = sP8x*sin(n*statorSlotTheta) + sP8y*cos(n*statorSlotTheta);}
+for (n=0;n<statorSlots;n++){ sP9xs(n)=sP9x*cos(n*statorSlotTheta) - sP9y*sin(n*statorSlotTheta); sP9ys(n) = sP9x*sin(n*statorSlotTheta) + sP9y*cos(n*statorSlotTheta);}
+for (n=0;n<statorSlots;n++){ sP10xs(n)=sP10x*cos(n*statorSlotTheta) - sP10y*sin(n*statorSlotTheta); sP10ys(n) = sP10x*sin(n*statorSlotTheta) + sP10y*cos(n*statorSlotTheta);}
+for (n=0;n<statorSlots;n++){ sP11xs(n)=sP11x*cos(n*statorSlotTheta) - sP11y*sin(n*statorSlotTheta); sP11ys(n) = sP11x*sin(n*statorSlotTheta) + sP11y*cos(n*statorSlotTheta);}
+for (n=0;n<statorSlots;n++){ sP12xs(n)=sP12x*cos(n*statorSlotTheta) - sP12y*sin(n*statorSlotTheta); sP12ys(n) = sP12x*sin(n*statorSlotTheta) + sP12y*cos(n*statorSlotTheta);}
+for (n=0;n<statorSlots;n++){ sP13xs(n)=sP13x*cos(n*statorSlotTheta) - sP13y*sin(n*statorSlotTheta); sP13ys(n) = sP13x*sin(n*statorSlotTheta) + sP13y*cos(n*statorSlotTheta);}
+for (n=0;n<statorSlots;n++){ sP14xs(n)=sP14x*cos(n*statorSlotTheta) - sP14y*sin(n*statorSlotTheta); sP14ys(n) = sP14x*sin(n*statorSlotTheta) + sP14y*cos(n*statorSlotTheta);}
+for (n=0;n<statorSlots;n++){ scoilP2xs(n)=sP2x*cos(n*statorSlotTheta) + sP2y*sin(n*statorSlotTheta); scoilP2ys(n) = sP2x*sin(n*statorSlotTheta) - sP2y*cos(n*statorSlotTheta);}
+
+
+// rotor borders
+border P1P2o0(t=0,1;i){x=rP2xs[i] + t*(rP1xs[i]-rP2xs[i]); y= rP2ys[i] + t*(rP1ys[i]-rP2ys[i]);}
+border P2P4o0(t=pi/2.+rotorSlotTheta,0;i) {x=rP3xs[i] + rotorSlotOuterRadius*cos(t+i*rotorSlotTheta); y=rP3ys[i] + rotorSlotOuterRadius*sin(t+i*rotorSlotTheta); }
+border P4P6o0(t=0,1;i){x=rP6xs[i] + t*(rP4xs[i]-rP6xs[i]); y= rP6ys[i] + t*(rP4ys[i]-rP6ys[i]);}
+border P6P7o0(t=pi,pi/2.+rotorSlotTheta;i) {x=rP5xs[i] + rotorSlotInnerRadius*cos(t+i*rotorSlotTheta); y=rP5ys[i] + rotorSlotInnerRadius*sin(t+i*rotorSlotTheta); }
+border P1P8o0(t=rP1theta,rotorSlotTheta-rP1theta;i) {x = rotorOut*cos(t+i*rotorSlotTheta); y = rotorOut*sin(t+i*rotorSlotTheta); }
+border P8P9o0(t=0,1;i){x=rP8xs[i] + t*(rP9xs[i]-rP8xs[i]); y= rP8ys[i] + t*(rP9ys[i]-rP8ys[i]);}
+border P9P11o0(t=rotorSlotTheta,-pi/2.;i) {x=rP10xs[i] + rotorSlotOuterRadius*cos(t+i*rotorSlotTheta); y=rP10ys[i] + rotorSlotOuterRadius*sin(t+i*rotorSlotTheta); }
+border P13P14o0(t=3*pi/2,pi+rotorSlotTheta;i) {x=rP12xs[i] + rotorSlotInnerRadius*cos(t+i*rotorSlotTheta); y=rP12ys[i] + rotorSlotInnerRadius*sin(t+i*rotorSlotTheta); }
+border P11P13o0(t=0,1;i){x=rP11xs[i] + t*(rP13xs[i]-rP11xs[i]); y= rP11ys[i] + t*(rP13ys[i]-rP11ys[i]);}
+border shaftBorder(t=0,1){x=rotorShaft*cos(-2*pi*t); y=rotorShaft*sin(-2*pi*t);}
+border rotorBarTopLine(t=0,1;i){x=rcoilP2xs[i] + t*(rP2xs[i]-rcoilP2xs[i]); y= rcoilP2ys[i] + t*(rP2ys[i]-rcoilP2ys[i]);}
+border SS(t=0,1){x=airGap*cos(2*pi*t); y=airGap*sin(2*pi*t);}
+
+// stator borders
+border P1P2stator(t=0,1;i){x=sP2xs[i] + t*(sP1xs[i]-sP2xs[i]); y= sP2ys[i] + t*(sP1ys[i]-sP2ys[i]);}
+border P2P4stator(t=pi/2.+statorSlotTheta,pi;i) {x=sP3xs[i] + statorSlotInnerRadius*cos(t+i*statorSlotTheta); y=sP3ys[i] + statorSlotInnerRadius*sin(t+i*statorSlotTheta); }
+border P4P6stator(t=0,1;i){x=sP6xs[i] + t*(sP4xs[i]-sP6xs[i]); y= sP6ys[i] + t*(sP4ys[i]-sP6ys[i]);}
+border P6P7stator(t=0,pi/2.+statorSlotTheta;i) {x=sP5xs[i] + statorSlotOuterRadius*cos(t+i*statorSlotTheta); y=sP5ys[i] + statorSlotOuterRadius*sin(t+i*statorSlotTheta); }
+border P1P8stator(t=sP1theta,statorSlotTheta-sP1theta;i) {x = statorIn*cos(t+i*statorSlotTheta); y = statorIn*sin(t+i*statorSlotTheta); }
+border P8P9stator(t=0,1;i){x=sP8xs[i] + t*(sP9xs[i]-sP8xs[i]); y= sP8ys[i] + t*(sP9ys[i]-sP8ys[i]);}
+border P9P11stator(t=-pi+statorSlotTheta,-pi/2.;i) {x=sP10xs[i] + statorSlotInnerRadius*cos(t+i*statorSlotTheta); y=sP10ys[i] + statorSlotInnerRadius*sin(t+i*statorSlotTheta); }
+border P13P14stator(t=-pi/2.,statorSlotTheta;i) {x=sP12xs[i] + statorSlotOuterRadius*cos(t+i*statorSlotTheta); y=sP12ys[i] + statorSlotOuterRadius*sin(t+i*statorSlotTheta); }
+border P11P13stator(t=0,1;i){x=sP11xs[i] + t*(sP13xs[i]-sP11xs[i]); y= sP11ys[i] + t*(sP13ys[i]-sP11ys[i]);}
+border statorOuterBorder(t=0,1){x=statorOut*cos(2*pi*t); y=statorOut*sin(2*pi*t);}
+border StatorCoilTopLine(t=0,1;i){x=scoilP2xs[i] + t*(sP2xs[i]-scoilP2xs[i]); y= scoilP2ys[i] + t*(sP2ys[i]-scoilP2ys[i]);}
+
+
+// rotor mesh
+mesh Thr = buildmesh(shaftBorder(-10)+P1P2o0(npRotorWedgeDepth) +P2P4o0(npTopCurveRotorSlot) 
+                    +P4P6o0(npRotorSlot) +P6P7o0(npBottomCurveRotorSlot) 
+                    +P1P8o0(npToothiTipRotor) +P8P9o0(npRotorWedgeDepth) +P9P11o0(npTopCurveRotorSlot) 
+                    +P13P14o0(npBottomCurveRotorSlot) +P11P13o0(npRotorSlot)
+                    +rotorBarTopLine(npRotorWedgeDepth)
+                    + SS(360*2));
+
+// stator mesh
+mesh Ths = buildmesh(statorOuterBorder(100)+P1P2stator(npStatorWedgeDepth) +P2P4stator(npTopCurveStatorSlot)
+    +P4P6stator(npStatorSlot) +P6P7stator(npBottomCurveStatorSlot)
+    +P1P8stator(npToothiTipStator) +P8P9stator(npStatorWedgeDepth) +P9P11stator(npTopCurveStatorSlot)
+    +P13P14stator(npBottomCurveStatorSlot) +P11P13stator(npStatorSlot) +StatorCoilTopLine(npStatorWedgeDepth) + SS(-360*2));
+
+// total mesh
+mesh Th = Ths+Thr;
+
+//  plot(Th,wait=1);

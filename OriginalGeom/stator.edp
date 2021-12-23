@@ -1,0 +1,202 @@
+load"UMFPACK64"
+load "lapack"
+//load "fflapack"
+
+//1?x???]??i????b?V???????????????K?v????
+
+real P=85e-6;
+int mm=15;          //??1,3,...,(2*n-1)???g???l???????mm=2*n+3
+int p=2;            //????
+
+    ofstream fidi("s85m11.dat");        // ?i?[?p?f?[?^?Z?b?g
+    fidi.precision(15);
+
+  real ra =30.e-3;
+  real rb =15.5e-3;
+  real rco=22.5e-3;
+  real rcf=16.5e-3;
+  real rs =3e-3;
+  real ri =11e-3;
+  real rc =14e-3;
+  real rt =15e-3;
+  real rg =0.5e-3;
+  real rci=6e-3;
+  real rch=3e-3;
+  real rcg=1e-3;
+real F=50;
+real omega=2*pi*F;
+real S;
+
+real sigSTall=0;
+
+real nuSTfe =1/(pi*4.e-4);
+real nuSTair=1/(pi*4.e-7);
+real nuSTco =1/(pi*4.e-7);
+
+real alpha=24;
+real beta =144;
+real gamma=36;
+real delta=18;
+real kappa=144/5;
+real xi   =48;
+
+real a=2*pi/alpha;   //15??
+real b=2*pi/beta;    //2.5??
+real c=2*pi/gamma;   //10??
+real d=2*pi/delta;   //20??
+real f=2*pi/kappa;   //12.5??
+real g=2*pi/xi;      //7.5??
+
+real[int,int] lambda(mm,mm),invlambda(mm,mm),Lambda(mm,mm);
+int i,j,n;
+int NSR=(rt+3*rg/5)/P+0.5;
+
+real [int] ee(12),ff(12),gg(12),hh(12),jj(12);
+for (n=1;n<12;n++){ ee(0)=3*pi/72; ee(n)=ee(n-1)+pi/6; }  //7.5, 37.5, 67.5,...
+for (n=1;n<12;n++){ ff(0)=9*pi/72; ff(n)=ff(n-1)+pi/6; }  //22.5, 52.5, 82.5,...
+for (n=1;n<12;n++){ gg(0)=4*pi/72; gg(n)=gg(n-1)+pi/6; }  //10, 40, 70,...
+for (n=1;n<12;n++){ hh(0)=8*pi/72; hh(n)=hh(n-1)+pi/6; }  //20, 50, 80,...
+for (n=1;n<12;n++){ jj(0)=6*pi/72; jj(n)=jj(n-1)+pi/6; }  //15, 45, 75,...
+
+int [int] nh(12),ni(12),nj(12),nk(12),nl(12),nm(12),no(12);
+for (n=0;n<12;n++){ nh(n)=(rco/alpha/P); }
+for (n=0;n<12;n++){ ni(n)=(rci/P/6); }
+for (n=0;n<12;n++){ nj(n)=(2*rcf/P/beta); }
+for (n=0;n<12;n++){ nk(n)=(2*rcf/P/gamma); }
+for (n=0;n<12;n++){ nl(n)=(2*rcg/P/3); }
+for (n=0;n<12;n++){ nm(n)=(3*rb/P/delta); }
+for (n=0;n<12;n++){ no(n)=(3*rb/P/gamma); }
+
+//stator??
+border SS(t=0,2*pi){x=(rt+3*rg/5)*cos(t); y=(rt+3*rg/5)*sin(t);}
+border S0(t=0,2*pi){x=ra*cos(t);             y=ra*sin(t);}
+border S1(t=0,6*pi/72;i){x=rco*cos(ee[i]+t);    y=rco*sin(ee[i]+t);}
+border S2(r=0,rci;i){x=(r+rcf)*cos(ee[i]);   y=(r+rcf)*sin(ee[i]);}
+border S3(r=0,rci;i){x=(r+rcf)*cos(ff[i]);   y=(r+rcf)*sin(ff[i]);}
+border S4(t=0,pi/72;i){x=rcf*cos(ee[i]+t);   y=rcf*sin(ee[i]+t);}
+border S5(t=0,4*pi/72;i){x=rcf*cos(gg[i]+t);   y=rcf*sin(gg[i]+t);}
+border S6(t=0,pi/72;i){x=rcf*cos(hh[i]+t);   y=rcf*sin(hh[i]+t);}
+border S7(t=0,6*pi/72;i){x=rcf*cos(ff[i]+t);   y=rcf*sin(ff[i]+t);}
+border S8(r=0,rcg;i){x=(r+rb)*cos(gg[i]);     y=(r+rb)*sin(gg[i]);}
+border S9(r=0,rcg;i){x=(r+rb)*cos(hh[i]);     y=(r+rb)*sin(hh[i]);}
+border S10(t=0,8*pi/72;i){x=rb*cos(hh[i]+t);    y=rb*sin(hh[i]+t);}
+border S11(t=0,4*pi/72;i){x=rb*cos(gg[i]+t);   y=rb*sin(gg[i]+t);}
+
+//mesh Ths =buildmesh(SS(-4*(rt+3*rg/5)/P)+S0(ra/P)+S1(nh)+S2(ni)+S3(ni)+S4(nj)+S5(nk)+S6(nj)+S7(nk)+S8(nl)+S9(nl)+S10(nm)+S11(no));
+mesh Ths =buildmesh(SS(-4*NSR)+S0(ra/P)+S1(nh)+S2(ni)+S3(ni)+S4(nj)+S5(nk)+S6(nj)+S7(nk)+S8(nl)+S9(nl)+S10(nm)+S11(no));
+
+fespace V0(Ths,P0);
+//stator
+//incoipal:   ?R?C???S??
+//instapal:   ???q?S?S gap???S??
+//ingapstpal: ???qgap coil???S??
+//inst:       ???q?S?S?S??
+//install:    ???q?S??
+
+int [int] coipa(12);
+int [int] stapa(12);
+int [int] gapstpa(12);
+V0[int] incoipa(12); 
+V0[int] instapa(12); 
+V0[int] ingapstpa(12); 
+V0 incoipal=0.0,instapal=0.0,ingapstpal=0.0;
+
+//coil?S??
+for (n=0;n<12;n++){ 
+  coipa(n) = Ths((rb+rci/2)*cos(gg(n)),(rb+rci/2)*sin(gg(n))).region;
+  incoipa[n] = 1.0*(region==coipa(n));
+  incoipal=incoipal+incoipa[n];
+}
+
+//???q?S?S gap???S??
+for (n=0;n<12;n++){ 
+  stapa(n) = Ths((rb+rcg/2)*cos(ee(n)),(rb+rcg/2)*sin(ee(n))).region;
+  instapa[n] = 1.0*(region==stapa(n));
+  instapal=instapal+instapa[n];
+}
+
+//???qgap coil???S??
+for (n=0;n<12;n++){ 
+  gapstpa(n) = Ths((rb+rcg/2)*cos(jj(n)),(rb+rcg/2)*sin(jj(n))).region;
+  ingapstpa[n] = 1.0*(region==gapstpa(n));
+  ingapstpal=ingapstpal+ingapstpa[n];
+}
+
+int st = Ths((ra+rb)/2, 0).region;
+int gapst = Ths(rt+3*rg/4, 0).region;
+V0 inst = 1.0*(region==st) + instapal;
+V0 ingapst = 1.0*(region==gapst) + ingapstpal;
+
+V0 U=incoipa[0]+incoipa[6]-incoipa[3]-incoipa[9];
+V0 V=incoipa[2]+incoipa[8]-incoipa[5]-incoipa[11];
+V0 W=incoipa[4]+incoipa[10]-incoipa[7]-incoipa[1];
+V0 install = inst+incoipal+ingapstpal;
+
+
+V0 nuST=inst*nuSTfe+incoipal*nuSTco+ingapst*nuSTair;
+V0 sigST=0;
+
+plot(Ths,wait=1);
+//plot(sig,fill=1);
+//plot(nuST,fill=1);
+//end;
+
+fespace Vh(Ths,P2);
+Vh AAz,w;
+fespace Vhd(Ths,P2dc);
+Vh[int] Az(mm), A(mm);
+Vhd[int] J0(3);
+Vhd[int] J(mm), E(mm);
+
+S=(rco^2-(rb+rcg)^2)*pi/alpha;
+J0[0]=U/S;    //U??
+J0[1]=V/S;    //V??
+J0[2]=W/S;    //W??
+
+//??????]?????????
+func fc=-cos(p*(2*n+1)*atan(y/x));
+func fs=-sin(p*(2*n+1)*atan(y/x));
+
+// n=0;
+// Vb tfc = fc;
+// Vb tfs = fs;
+// plot(tfc,cmm="fc",wait=1);
+// plot(tfs,cmm="fs",wait=1);
+
+
+/////////sator domain//////////
+for(n=0;n<mm;n=n+1){ 
+  A[0]=0.0;	
+  E[0]=0.0;	
+}
+solve Prob1(AAz,w) = int2d(Ths)(nuST*dx(AAz)*dx(w)+nuST*dy(AAz)*dy(w))-int2d(Ths)(w*J0[0])+on(S0,AAz=0);
+A[0]=AAz;
+
+solve Prob2(AAz,w) = int2d(Ths)(nuST*dx(AAz)*dx(w)+nuST*dy(AAz)*dy(w))-int2d(Ths)(w*J0[1])+on(S0,AAz=0);
+A[1]=AAz;
+
+solve Prob3(AAz,w) = int2d(Ths)(nuST*dx(AAz)*dx(w)+nuST*dy(AAz)*dy(w))-int2d(Ths)(w*J0[2])+on(S0,AAz=0);
+A[2]=AAz;
+plot(A[0],cmm="A[3]",wait=1);
+
+for(n=0;n<(mm-3)/2;n=n+1){ 
+
+  solve Prob4(AAz,w) = int2d(Ths)(nuST*dx(AAz)*dx(w)+nuST*dy(AAz)*dy(w))-int1d(Ths,SS)((fc)*w)+on(S0,AAz=0);
+  A[2*n+3]=AAz;
+
+  solve Prob5(AAz,w) = int2d(Ths)(nuST*dx(AAz)*dx(w)+nuST*dy(AAz)*dy(w))-int1d(Ths,SS)((fs)*w)+on(S0,AAz=0);
+  A[2*n+4]=AAz;
+
+}
+plot(A[4],cmm="A[4]",wait=1);
+
+for (i=0;i<mm;i=i+1){
+  for (j=0;j<mm;j=j+1){
+   lambda(i,j) = int2d(Ths)(nuST*(dy(A[i])*dy(A[j])+dx(A[i])*dx(A[j])));
+  }
+}
+    Lambda=lambda/2;
+    cout<<Lambda<<endl;
+    fidi<<Lambda<<endl;
+
+  plot(A[0]);

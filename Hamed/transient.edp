@@ -1,0 +1,186 @@
+include "mod_motor_geom.edp"
+
+ofstream Bex1("Bex1.dat");
+ofstream Bex2("Bex2.dat");
+Bex1.scientific;
+Bex2.scientific;
+
+int ii;
+real[int] xBex1(51), yBex1(51), ABex1(51);
+real[int] xBex2(51), yBex2(51), ABex2(51);
+for (ii=0;ii<51;ii++){
+  xBex1[ii] = statorIn+ii*(statorOut-statorIn)/50;
+  yBex1[ii] = 0;
+  xBex2[ii] = xBex1[ii]*cos(statorSlotTheta) -yBex1[ii]*sin(statorSlotTheta);
+  yBex2[ii] = xBex1[ii]*sin(statorSlotTheta) +yBex1[ii]*cos(statorSlotTheta);
+}
+
+
+fespace V0(Ths,P0);
+
+int [int] coipa(statorSlots);
+V0[int] incoipa(statorSlots); 
+V0[int] ingapstpa(statorSlots); 
+V0 incoipal=0.0,ingapstpal=0.0;
+
+//coil全体
+for (n=0;n<statorSlots;n++){ 
+  coipa(n) = Ths((statorIn+statorSlotDepth/2)*cos(n*statorSlotTheta),(statorIn+statorSlotDepth/2)*sin(n*statorSlotTheta)).region;
+  incoipa[n] = 1.0*(region==coipa(n));
+  incoipal=incoipal+incoipa[n];
+}
+
+int st = Ths((statorOut+statorIn+statorSlotDepth)/2, 0).region;
+V0 inst = 1.0*(region==st);
+V0 U=incoipa[0]+incoipa[1]+incoipa[12]+incoipa[13]-incoipa[6]-incoipa[7]-incoipa[18]-incoipa[19];
+V0 V=incoipa[4]+incoipa[5]+incoipa[16]+incoipa[17]-incoipa[10]-incoipa[11]-incoipa[22]-incoipa[23];
+V0 W=incoipa[8]+incoipa[9]+incoipa[20]+incoipa[21]-incoipa[2]-incoipa[3]-incoipa[14]-incoipa[15];
+
+int statorGap = Ths(statorIn,0).region;
+ingapstpal = 1.0*(region==statorGap);
+V0 install = inst+incoipal+ingapstpal;
+// plot(Ths,install);
+
+
+//rotor regions
+//inconpal:  導体全体
+//inropal:   回転子鉄心 gap側全体
+//ingaprtpal:回転子gap 導体側全体
+//inshaft:   シャフト
+//inrot:     回転子鉄心全体
+//ingaprt:   回転子空隙全体
+//inrotall:  回転子全体
+
+fespace V1(Thr,P0);
+
+int [int] conpa(rotorSlots);
+int [int] ropa(rotorSlots);
+int [int] gaprtpa(rotorSlots);
+V1[int] inconpa(rotorSlots); 
+V1[int] inropa(rotorSlots); 
+V1[int] ingaprtpa(rotorSlots);
+V1 inconpal,inropal,ingaprtpal;
+
+
+int rot, shaft = Thr(0, 0).region;
+V1 inrot, inshaft, inrotall;
+
+
+fespace V2(Th,P0);
+
+//all
+
+V2 ingap,ingapall, nuRT, nugap;
+V2 nuST=inst*nuSTfe+incoipal*nuSTco;
+V2 sigRT, sigST=0,sigair=0;
+V2 nu,sig;
+
+// plot(sig,fill=1,cmm="sig",wait=1);
+// plot(nu,fill=1,cmm="nu",wait=1);
+//end;
+
+fespace Vh(Th,P1);
+fespace Vhd(Th,P1dc);
+Vh A,AA=0,w;
+Vhd Bx,By,Br,Bt;
+Vhd J0,Je;
+
+real S=int2d(Ths,coipa(0))(1.0); //question
+real t=0;
+real T =1/F;
+real dt=T/N;
+real [int] Phu(1000);
+real [int] Phv(1000);
+real [int] Phw(1000);
+real [int] TQ(1000);
+real theta=2*pi*(1-s)/N/p;
+real phu0,phv0,phw0,iu,iv,iw,ie;
+
+for (i=0;i<N*per+1;i++){
+    //導体全体
+    inconpal=0;
+    for (n=0;n<rotorSlots;n++){ 
+      conpa(n) = Thr((rotorOut-rotorSlotDepth/2)*cos(n*rotorSlotTheta+i*theta),(rotorOut-rotorSlotDepth/2)*sin(n*rotorSlotTheta+i*theta)).region;
+      inconpa[n] = 1.0*(region==conpa(n));
+      inconpal=inconpal+inconpa[n];
+    }
+
+
+    //回転子鉄心 gap側全体
+    int rotp = Thr((rotorOut+rotorShaft-rotorSlotDepth)/2,0).region;
+    inrot=1.0*(region==rotp);
+    
+    //回転子gap 導体側全体
+    int gaprtpal = Thr(rotorOut,0).region;
+    ingaprtpal=1.0*(region==gaprtpal);
+    inshaft = 1.0*(region==shaft);
+    inrotall=inshaft+inrot+inconpal+ingaprtpal;
+
+//     ingap=1-install-inrotall;
+    ingapall=ingapstpal+ingaprtpal;
+
+    nuRT=inshaft*nuRTair+inrot*nuRTfe+inconpal*nuRTcon;
+    nugap=ingapall*nuSTair;
+    nu=nuST+nuRT+nugap;
+
+    
+    sigRT=inconpal*sigRTcon;
+    sig=sigST+sigRT+sigair;
+
+    
+    func fu=cos(omega*t);
+    func fv=cos(omega*t-2*pi/3);
+    func fw=cos(omega*t-4*pi/3);
+    J0 = (U*fu + V*fv + W*fw ) / S;
+
+    solve Prob(A,w)=int2d(Th)(sig*A*w+dt*nu*(dx(A)*dx(w)+dy(A)*dy(w)))
+                	-int2d(Th)(sig*AA*w+dt*J0*w)+on(statorOuterBorder,A=0);
+    Je=sig*(A-AA)/dt;
+    
+    // plot(A,fill=1,cmm="A"+i,wait=0);
+    Bex1 << t << " ";
+    for(ii=0;ii<51;ii++){
+      ABex1[ii] = A(xBex1[ii],yBex1[ii]);
+      ABex2[ii] = A(xBex2[ii],yBex2[ii]);
+      Bex1 << A(xBex1[ii],yBex1[ii]) << " ";
+      Bex2 << A(xBex2[ii],yBex2[ii]) << " ";
+    }
+    Bex1 << endl;
+    Bex2 << endl;
+  plot([xBex1,ABex1],cmm="Bex1-Bex2",wait=0);
+  plot([xBex1,ABex2],cmm="Bex3-Bex4",wait=0);
+  
+
+    Phu(i)=(int2d(Th,coipa(0))(A)-int2d(Th,coipa(6))(A))/S;
+    Phv(i)=(int2d(Th,coipa(4))(A)-int2d(Th,coipa(10))(A))/S;
+    Phw(i)=(int2d(Th,coipa(8))(A)-int2d(Th,coipa(2))(A))/S;
+    iu=int2d(Th,coipa(0))(J0);
+    iv=int2d(Th,coipa(4))(J0);
+    iw=int2d(Th,coipa(8))(J0);
+    ie=int2d(Th)(Je);
+
+    Bx=dy(A);
+    By=-dx(A);
+
+    Br= Bx*cos(atan2(y,x))+By*sin(atan2(y,x));
+    Bt=-Bx*sin(atan2(y,x))+By*cos(atan2(y,x));
+    tq=int1d(Th,SS)(((Bx*cos(atan2(y,x))+By*sin(atan2(y,x)))*(-Bx*sin(atan2(y,x))+By*cos(atan2(y,x))))*(airGap)*nu);
+    TQ(i)=tq/2;
+    if(i>N*(per-1)){ tqave+=tq/2; }
+    cout<<t<<" "<<tq/2<<" "<<Phu(i)<<" "<<Phv(i)<<endl; 
+// //    fidi<<t<<" "<<tq/2<<" "<<Phu(i)<<" "<<Phv(i)<<" "<<Phw(i)<<" "<<iu<<" "<<iv<<" "<<iw<<" "<<ie<<endl; // 書き込み
+    fidi<<t<<" "<<tq/2<<" "<<Phu(i)<<" "<<Phv(i)<<" "<<Phw(i)<<" "<<(Phu(i)-phu0)/dt<<" "<<(Phv(i)-phv0)/dt<<" "<<(Phw(i)-phw0)/dt<<" "<<ie<<endl; // 書き込み
+
+    AA=A;
+
+    AA=AA((x*cos(theta)+y*sin(theta))*inrotall+(1-inrotall)*x,(-x*sin(theta)+y*cos(theta))*inrotall+(1-inrotall)*y);
+    Thr=movemesh(Thr,[x*cos(-theta)+y*sin(-theta),-x*sin(-theta)+y*cos(-theta)]);
+    Th=Ths+Thr;
+
+    phu0=Phu(i);
+    phv0=Phv(i);
+    phw0=Phw(i);
+
+    t=t+dt;
+}
+ 

@@ -1,0 +1,391 @@
+load"UMFPACK64"
+load "lapack"
+//load "fflapack"
+
+//1度の回転に進むメッシュの数が整数になる必要あり
+
+real P=85e-6;
+//real P=34e-6;
+
+int N=90;           //1時間周期の分割数         
+int per=3;          //計算する時間周期
+real s=0.5;         //slip
+real F=50;          //周波数
+real omega=2*pi*F;  //角周波数
+real p=2;           //極対数(p=2で4極)
+
+    ofstream fidi("p85s05.dat");   // 格納用データセット
+//    fidi.precision(15);
+
+  real ra =30.e-3;
+  real rb =15.5e-3;
+  real rco=22.5e-3;
+  real rcf=16.5e-3;
+  real rs =3e-3;
+  real ri =11e-3;
+  real rc =14e-3;
+  real rt =15e-3;
+  real rg =0.5e-3;
+  real rci=6e-3;
+  real rch=3e-3;
+  real rcg=1e-3;
+real tq, tqave=0.0;
+
+int NSR=(rt+3*rg/5)/P+0.5;
+
+real sigRTall=0;
+real sigRTcon=4.e7;
+real sigSTall=0;
+
+real nuSTfe =1/(pi*4.e-4);
+real nuSTair=1/(pi*4.e-7);
+real nuSTco =1/(pi*4.e-7);
+real nuRTair=1/(pi*4.e-7);
+real nuRTfe =1/(pi*4.e-4);
+real nuRTcon=1/(pi*4.e-7);
+
+real alpha=24;
+real beta =144;
+real gamma=36;
+real delta=18;
+real kappa=144/5;
+real xi   =48;
+
+real a=2*pi/alpha;   //15°
+real b=2*pi/beta;    //2.5°
+real c=2*pi/gamma;   //10°
+real d=2*pi/delta;   //20°
+real f=2*pi/kappa;   //12.5°
+real g=2*pi/xi;      //7.5°
+
+int i,j,n;
+
+//rotor側　conductiong bar 4本
+real [int] aa(16),bb(16),cc(16),dd(16);
+for (n=1;n<16;n++){ aa(0)=2*pi/72; aa(n)=aa(n-1)+pi/8; } //5, 27.5, 50,...
+for (n=1;n<16;n++){ bb(0)=7*pi/72; bb(n)=bb(n-1)+pi/8; } //17.5, 40, 62.5,...
+for (n=1;n<16;n++){ cc(0)=3*pi/72; cc(n)=cc(n-1)+pi/8; } //7.5, 30, 52.5,...
+for (n=1;n<16;n++){ dd(0)=6*pi/72; dd(n)=dd(n-1)+pi/8; } //15 37.5, 60,...
+
+int [int] np(16),nq(16),nr(16),ns(16),nt(16),nv(16),nw(16),nx(16);
+for (n=0;n<16;n++){ np(n)=(ri/P/kappa); }
+for (n=0;n<16;n++){ nq(n)=(rch/P/6); }
+for (n=0;n<16;n++){ nr(n)=(2*rc/P/beta); }
+for (n=0;n<16;n++){ ns(n)=(2*rc/P/xi); }
+for (n=0;n<16;n++){ nt(n)=(2*rc/P/gamma); }
+for (n=0;n<16;n++){ nv(n)=(rcg/P/3); }
+for (n=0;n<16;n++){ nw(n)=3*rt/P/alpha; }
+for (n=0;n<16;n++){ nx(n)=3*rt/P/xi; }
+
+//border SS(t=-pi/4,7*pi/4){x=(rt+3*rg/5)*cos(t); y=(rt+3*rg/5)*sin(t);}
+border SS(t=0,2*pi){x=(rt+3*rg/5)*cos(t); y=(rt+3*rg/5)*sin(t);}
+border s0(t=0,2*pi){x=rs*cos(t);             y=rs*sin(t);}
+
+border ss1(t=0,5*pi/72;i){x=ri*cos(aa[i]+t);  y=ri*sin(aa[i]+t);}
+border ss2(r=0,rch;i){x=(r+ri)*cos(aa[i]);    y=(r+ri)*sin(aa[i]);}
+border ss3(r=0,rch;i){x=(r+ri)*cos(bb[i]);    y=(r+ri)*sin(bb[i]);}
+border ss4(t=0,pi/72;i){x=rc*cos(aa[i]+t);    y=rc*sin(aa[i]+t);}
+border ss5(t=0,3*pi/72;i){x=rc*cos(cc[i]+t);    y=rc*sin(cc[i]+t);}
+border ss6(t=0,pi/72;i){x=rc*cos(dd[i]+t);    y=rc*sin(dd[i]+t);}
+border ss7(t=0,4*pi/72;i){x=rc*cos(bb[i]+t);    y=rc*sin(bb[i]+t);}
+border ss8(r=0,rcg;i){x=(r+rc)*cos(cc[i]);    y=(r+rc)*sin(cc[i]);}
+border ss9(r=0,rcg;i){x=(r+rc)*cos(dd[i]);    y=(r+rc)*sin(dd[i]);}
+border ss10(t=0,6*pi/72;i){x=rt*cos(dd[i]+t);    y=rt*sin(dd[i]+t);}
+border ss11(t=0,3*pi/72;i){x=rt*cos(cc[i]+t);   y=rt*sin(cc[i]+t);}
+
+//mesh Thrr=buildmesh(SS(4*(rt+3*rg/5)/P)+s0(-rs/P)+ss1(np)+ss2(nq)+ss3(nq)+ss4(nr)+ss5(ns)+ss6(nr)+ss7(nt)+ss8(nv)+ss9(nv)+ss10(nw)+ss11(nx));
+mesh Thrr=buildmesh(SS(4*NSR)+s0(rs/P)+ss1(np)+ss2(nq)+ss3(nq)+ss4(nr)+ss5(ns)+ss6(nr)+ss7(nt)+ss8(nv)+ss9(nv)+ss10(nw)+ss11(nx));
+
+plot(Thrr,cmm="Thrr",wait=1);
+//end;
+
+real [int] ee(12),ff(12),gg(12),hh(12),jj(12);
+for (n=1;n<12;n++){ ee(0)=3*pi/72; ee(n)=ee(n-1)+pi/6; }  //7.5, 37.5, 67.5,...
+for (n=1;n<12;n++){ ff(0)=9*pi/72; ff(n)=ff(n-1)+pi/6; }  //22.5, 52.5, 82.5,...
+for (n=1;n<12;n++){ gg(0)=4*pi/72; gg(n)=gg(n-1)+pi/6; }  //10, 40, 70,...
+for (n=1;n<12;n++){ hh(0)=8*pi/72; hh(n)=hh(n-1)+pi/6; }  //20, 50, 80,...
+for (n=1;n<12;n++){ jj(0)=6*pi/72; jj(n)=jj(n-1)+pi/6; }  //15, 45, 75,...
+
+int [int] nh(12),ni(12),nj(12),nk(12),nl(12),nm(12),no(12);
+for (n=0;n<12;n++){ nh(n)=(rco/alpha/P); }
+for (n=0;n<12;n++){ ni(n)=(rci/P/6); }
+for (n=0;n<12;n++){ nj(n)=(2*rcf/P/beta); }
+for (n=0;n<12;n++){ nk(n)=(2*rcf/P/gamma); }
+for (n=0;n<12;n++){ nl(n)=(2*rcg/P/3); }
+for (n=0;n<12;n++){ nm(n)=(3*rb/P/delta); }
+for (n=0;n<12;n++){ no(n)=(3*rb/P/gamma); }
+
+//stator側
+border ST(t=-pi/4,pi/4){x=(rt+3*rg/5)*cos(t); y=(rt+3*rg/5)*sin(t);}
+border SU(t=pi/4,7*pi/4){x=(rt+3*rg/5)*cos(t); y=(rt+3*rg/5)*sin(t);}
+
+border S0(t=0,2*pi){x=ra*cos(t);             y=ra*sin(t);}
+border S1(t=0,6*pi/72;i){x=rco*cos(ee[i]+t);    y=rco*sin(ee[i]+t);}
+border S2(r=0,rci;i){x=(r+rcf)*cos(ee[i]);   y=(r+rcf)*sin(ee[i]);}
+border S3(r=0,rci;i){x=(r+rcf)*cos(ff[i]);   y=(r+rcf)*sin(ff[i]);}
+border S4(t=0,pi/72;i){x=rcf*cos(ee[i]+t);   y=rcf*sin(ee[i]+t);}
+border S5(t=0,4*pi/72;i){x=rcf*cos(gg[i]+t);   y=rcf*sin(gg[i]+t);}
+border S6(t=0,pi/72;i){x=rcf*cos(hh[i]+t);   y=rcf*sin(hh[i]+t);}
+border S7(t=0,6*pi/72;i){x=rcf*cos(ff[i]+t);   y=rcf*sin(ff[i]+t);}
+border S8(r=0,rcg;i){x=(r+rb)*cos(gg[i]);     y=(r+rb)*sin(gg[i]);}
+border S9(r=0,rcg;i){x=(r+rb)*cos(hh[i]);     y=(r+rb)*sin(hh[i]);}
+border S10(t=0,8*pi/72;i){x=rb*cos(hh[i]+t);    y=rb*sin(hh[i]+t);}
+border S11(t=0,4*pi/72;i){x=rb*cos(gg[i]+t);   y=rb*sin(gg[i]+t);}
+
+//mesh Ths =buildmesh(ST(-(rt+3*rg/5)/P)+SU(-3*(rt+3*rg/5)/P)+S0(ra/P)+S1(nh)+S2(ni)+S3(ni)+S4(nj)+S5(nk)+S6(nj)+S7(nk)+S8(nl)+S9(nl)+S10(nm)+S11(no));
+mesh Ths =buildmesh(SS(-4*NSR)+S0(ra/P)+S1(nh)+S2(ni)+S3(ni)+S4(nj)+S5(nk)+S6(nj)+S7(nk)+S8(nl)+S9(nl)+S10(nm)+S11(no));
+
+mesh Th=Thrr+Ths;
+plot(Th,cmm="Th",wait=1);
+//end;
+
+
+fespace V0(Ths,P0);
+//stator
+//incoipal:   コイル全体
+//instapal:   固定子鉄心 gap側全体
+//ingapstpal: 固定子gap coil側全体
+//inst:       固定子鉄心全体
+//install:    固定子全体
+
+int [int] coipa(12);
+int [int] stapa(12);
+int [int] gapstpa(12);
+V0[int] incoipa(12); 
+V0[int] instapa(12); 
+V0[int] ingapstpa(12); 
+V0 incoipal=0.0,instapal=0.0,ingapstpal=0.0;
+
+//coil全体
+for (n=0;n<12;n++){ 
+  coipa(n) = Ths((rb+rci/2)*cos(gg(n)),(rb+rci/2)*sin(gg(n))).region;
+  incoipa[n] = 1.0*(region==coipa(n));
+  incoipal=incoipal+incoipa[n];
+}
+
+//固定子鉄心 gap側全体
+for (n=0;n<12;n++){ 
+  stapa(n) = Ths((rb+rcg/2)*cos(ee(n)),(rb+rcg/2)*sin(ee(n))).region;
+  instapa[n] = 1.0*(region==stapa(n));
+  instapal=instapal+instapa[n];
+}
+
+//固定子gap coil側全体
+for (n=0;n<12;n++){ 
+  gapstpa(n) = Ths((rb+rcg/2)*cos(jj(n)),(rb+rcg/2)*sin(jj(n))).region;
+  ingapstpa[n] = 1.0*(region==gapstpa(n));
+  ingapstpal=ingapstpal+ingapstpa[n];
+}
+
+int st = Ths((ra+rb)/2, 0).region;
+V0 inst = 1.0*(region==st) + instapal;
+
+V0 U=incoipa[0]+incoipa[6]-incoipa[3]-incoipa[9];
+V0 V=incoipa[2]+incoipa[8]-incoipa[5]-incoipa[11];
+V0 W=incoipa[4]+incoipa[10]-incoipa[7]-incoipa[1];
+V0 install = inst+incoipal+ingapstpal;
+
+
+//conducting bar 4本
+
+fespace V1(Thrr,P0);
+//rotor
+
+//inconpal:  導体全体
+//inropal:   回転子鉄心 gap側全体
+//ingaprtpal:回転子gap 導体側全体
+//inshaft:   シャフト
+//inrot:     回転子鉄心全体
+//ingaprt:   回転子空隙全体
+//inrotall:  回転子全体
+
+int [int] conpa(16);
+int [int] ropa(16);
+int [int] gaprtpa(16);
+V1[int] inconpa(16); 
+V1[int] inropa(16); 
+V1[int] ingaprtpa(16);
+V1 inconpal,inropal,ingaprtpal;
+
+
+int rot, shaft = Thrr(0, 0).region;
+V1 inrot, inshaft, inrotall;
+
+
+fespace V2(Th,P0);
+
+//all
+
+V2 ingap,ingapall, nuRT, nugap;
+V2 nuST=inst*nuSTfe+incoipal*nuSTco;
+V2 sigRT, sigST=0,sigair=0;
+V2 nu,sig;
+
+// plot(sig,fill=1,cmm="sig",wait=1);
+// plot(nu,fill=1,cmm="nu",wait=1);
+//end;
+
+fespace Vh(Th,P2);
+fespace Vhd(Th,P2dc);
+Vh A,AA=0,w;
+Vhd Bx,By,Br,Bt;
+Vhd J0,Je;
+
+real S=(rco^2-(rb+rcg)^2)*pi/alpha;
+real t=0;
+real T =1/F;
+real dt=T/N;
+real [int] Phu(1000);
+real [int] Phv(1000);
+real [int] Phw(1000);
+real [int] TQ(1000);
+real theta=2*pi*(1-s)/N/p;
+real phu0,phv0,phw0,iu,iv,iw,ie;
+
+for (i=0;i<N*per+1;i++)
+{
+
+    //導体全体
+    inconpal=0;
+    for (n=0;n<16;n++){ 
+      conpa(n) = Thrr((ri+rch/2)*cos(cc(n)),(ri+rch/2)*sin(cc(n))).region;
+      inconpa[n] = 1.0*(region==conpa(n));
+      inconpal=inconpal+inconpa[n];
+    }
+
+    //回転子鉄心 gap側全体
+    inropal=0;
+    for (n=0;n<16;n++){ 
+      ropa(n) = Thrr((rc+rcg/2)*cos(bb(n)),(rc+rcg/2)*sin(bb(n))).region;
+      inropa[n] = 1.0*(region==ropa(n));
+      inropal=inropal+inropa[n];
+    }
+
+    //回転子gap 導体側全体
+    ingaprtpal=0;
+    for (n=0;n<16;n++){ 
+      gaprtpa(n) = Thrr((rc+rcg/2)*cos((cc(n)+dd(n))/2),(rc+rcg/2)*sin((cc(n)+dd(n))/2)).region;
+      ingaprtpa[n] = 1.0*(region==gaprtpa(n));
+      ingaprtpal=ingaprtpal+ingaprtpa[n];
+    }
+
+    rot = Thrr(0,2*rs).region;
+
+    inrot = 1.0*(region==rot) + inropal;
+    inshaft = 1.0*(region==shaft);
+    inrotall=inshaft+inrot+inconpal+ingaprtpal;
+
+    ingap=1-install-inrotall;
+    ingapall=ingap+ingapstpal+ingaprtpal;
+
+    nuRT=inshaft*nuRTair+inrot*nuRTfe+inconpal*nuRTcon;
+    nugap=ingapall*nuSTair;
+    nu=nuST+nuRT+nugap;
+
+    sigRT=inconpal*sigRTcon;
+    sig=sigST+sigRT+sigair;
+
+    // plot(inrot,fill=1,cmm="inrot"+i,wait=1);
+    // plot(inshaft,fill=1,cmm="inshaft"+i,wait=1);
+    // plot(inrotall,fill=1,cmm="inrotall",wait=1);
+    // plot(ingap,fill=1,cmm="ingap",wait=1);
+    // plot(ingapall,fill=1,cmm="ingapall",wait=1);
+    // plot(nuRT,fill=1,cmm="nuRT",wait=1);
+    // plot(nugap,fill=1,cmm="nugap",wait=1);
+    // plot(nu,fill=1,cmm="nu",wait=1);
+
+    func fu=cos(omega*t);
+    func fv=cos(omega*t-2*pi/3);
+    func fw=cos(omega*t-4*pi/3);
+    J0 = (U*fu + V*fv + W*fw) / S;
+    plot(J0,fill=1,cmm="J0",wait=1);
+
+  //  if(i==0){
+  //  solve Prob(AA,w)=int2d(Th)(dt*nu*(dx(AA)*dx(w)+dy(AA)*dy(w)))
+  //              	+on(s0,AA=0)+on(S0,AA=0);
+  //  }
+
+
+
+
+
+    solve Prob(A,w)=int2d(Th)(sig*A*w+dt*nu*(dx(A)*dx(w)+dy(A)*dy(w)))
+                	-int2d(Th)(sig*AA*w+dt*J0*w)+on(s0,A=0)+on(S0,A=0);
+    Je=sig*(A-AA)/dt;
+    plot(A);
+
+    Phu(i)=(int2d(Th,coipa(0))(A)-int2d(Th,coipa(3))(A))/S;
+    Phv(i)=(int2d(Th,coipa(2))(A)-int2d(Th,coipa(5))(A))/S;
+    Phw(i)=(int2d(Th,coipa(4))(A)-int2d(Th,coipa(1))(A))/S;
+    iu=int2d(Th,coipa(0))(J0);
+    iv=int2d(Th,coipa(2))(J0);
+    iw=int2d(Th,coipa(4))(J0);
+    ie=int2d(Th)(Je);
+
+    Bx=dy(A);
+    By=-dx(A);
+    
+    Br= Bx*cos(atan2(y,x))+By*sin(atan2(y,x));
+    Bt=-Bx*sin(atan2(y,x))+By*cos(atan2(y,x));
+    tq=int1d(Th,SS)(((Bx*cos(atan2(y,x))+By*sin(atan2(y,x)))*(-Bx*sin(atan2(y,x))+By*cos(atan2(y,x))))*(rt+3*rg/5)*nu);
+    TQ(i)=tq/2;
+    if(i>N*(per-1)){ tqave+=tq/2; }
+    cout<<t<<" "<<tq/2<<" "<<Phu(i)<<" "<<Phv(i)<<" "<<Phw(i)<<endl; 
+//    fidi<<t<<" "<<tq/2<<" "<<Phu(i)<<" "<<Phv(i)<<" "<<Phw(i)<<" "<<iu<<" "<<iv<<" "<<iw<<" "<<ie<<endl; // 書き込み
+    fidi<<t<<" "<<tq/2<<" "<<Phu(i)<<" "<<Phv(i)<<" "<<Phw(i)<<" "<<(Phu(i)-phu0)/dt<<" "<<(Phv(i)-phv0)/dt<<" "<<(Phw(i)-phw0)/dt<<" "<<ie<<endl; // 書き込み
+
+    AA=A;
+
+    plot(AA,cmm="AAper",wait=1);
+    AA=AA((x*cos(theta)+y*sin(theta))*inrotall+(1-inrotall)*x,(-x*sin(theta)+y*cos(theta))*inrotall+(1-inrotall)*y);
+    plot(AA,cmm="AAnext",wait=1);
+    Thrr=movemesh(Thrr,[x*cos(-theta)+y*sin(-theta),-x*sin(-theta)+y*cos(-theta)]);
+    Th=Ths+Thrr;
+//plot(Thrr);
+
+    for (n=0;n<16;n++){ 
+      aa(n)=aa(n)+theta; 
+      bb(n)=bb(n)+theta; 
+      cc(n)=cc(n)+theta; 
+      dd(n)=dd(n)+theta; 
+    }
+    phu0=Phu(i);
+    phv0=Phv(i);
+    phw0=Phw(i);
+
+    t=t+dt;
+
+}
+    fidi<<"# "<<tqave/N<<endl; // 書き込み
+
+
+for(i=0;i<N*per+1;i++){
+cout<<+TQ(i)<<endl;
+}
+
+cout<<" "<<endl;
+
+for(i=0;i<N*per+1;i++){
+cout<<+Phu(i)<<endl;
+}
+
+cout<<" "<<endl;
+
+for(i=0;i<N*per+1;i++){
+cout<<+Phv(i)<<endl;
+}
+
+cout<<" "<<endl;
+
+for(i=0;i<N*per+1;i++){
+cout<<+Phw(i)<<endl;
+}
+
+cout<<" "<<endl;
+
+cout<<NSR<<endl;
+
+cout<<" "<<endl;
+
+cout<<+tqave/N<<endl;
+

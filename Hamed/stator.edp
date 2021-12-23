@@ -1,0 +1,95 @@
+include "mod_motor_geom.edp"
+
+ofstream fidiStator("statorL.dat");
+fidiStator.precision(15);
+
+fespace V0(Ths,P0);
+
+int mm=15;          //‘æ1,3,...,(2*n-1)’²”g‚ğl—¶‚·‚éê‡mm=2*n+3
+real[int,int] lambda(mm,mm),invlambda(mm,mm),Lambda(mm,mm);
+
+int [int] coipa(statorSlots);
+V0[int] incoipa(statorSlots); 
+V0[int] ingapstpa(statorSlots); 
+V0 incoipal=0.0,ingapstpal=0.0;
+
+//coilå…¨ä½?
+for (n=0;n<statorSlots;n++){ 
+  coipa(n) = Ths((statorIn+statorSlotDepth/2)*cos(n*statorSlotTheta),(statorIn+statorSlotDepth/2)*sin(n*statorSlotTheta)).region;
+  incoipa[n] = 1.0*(region==coipa(n));
+  incoipal=incoipal+incoipa[n];
+}
+
+int st = Ths((statorOut+statorIn+statorSlotDepth)/2, 0).region;
+V0 inst = 1.0*(region==st);
+V0 U=incoipa[0]+incoipa[1]+incoipa[12]+incoipa[13]-incoipa[6]-incoipa[7]-incoipa[18]-incoipa[19];
+V0 V=incoipa[4]+incoipa[5]+incoipa[16]+incoipa[17]-incoipa[10]-incoipa[11]-incoipa[22]-incoipa[23];
+V0 W=incoipa[8]+incoipa[9]+incoipa[20]+incoipa[21]-incoipa[2]-incoipa[3]-incoipa[14]-incoipa[15];
+
+int statorGap = Ths(statorIn,0).region;
+ingapstpal = 1.0*(region==statorGap);
+V0 install = inst+incoipal+ingapstpal;
+// plot(Ths,install);
+
+V0 nuST=inst*nuSTfe+incoipal*nuSTco+ingapstpal*nuSTair;
+V0 sigST=0;
+
+// plot(nuST,fill=1,wait=1);
+
+fespace Vh(Ths,P2);
+Vh AAz,w;
+fespace Vhd(Ths,P2dc);
+Vh[int] Az(mm), A(mm);
+Vhd[int] J0(3);
+Vhd[int] J(mm), E(mm);
+
+real S=int2d(Ths,coipa(0))(1.0); //question
+J0[0]=U/S;    //U‘Š
+J0[1]=V/S;    //V‘Š
+J0[2]=W/S;    //W‘Š
+
+//•„†‚ğ”½“]‚³‚¹‚Ä“ü—Í
+func fc=-cos(p*(2*n+1)*atan(y/x));
+func fs=-sin(p*(2*n+1)*atan(y/x));
+
+for(n=0;n<mm;n=n+1){ 
+  A[0]=0.0;	
+  E[0]=0.0;	
+}
+solve Prob1(AAz,w) = int2d(Ths)(nuST*dx(AAz)*dx(w)+nuST*dy(AAz)*dy(w))-int2d(Ths)(w*J0[0])+on(statorOuterBorder,AAz=0);
+A[0]=AAz;
+
+solve Prob2(AAz,w) = int2d(Ths)(nuST*dx(AAz)*dx(w)+nuST*dy(AAz)*dy(w))-int2d(Ths)(w*J0[1])+on(statorOuterBorder,AAz=0);
+A[1]=AAz;
+
+solve Prob3(AAz,w) = int2d(Ths)(nuST*dx(AAz)*dx(w)+nuST*dy(AAz)*dy(w))-int2d(Ths)(w*J0[2])+on(statorOuterBorder,AAz=0);
+A[2]=AAz;
+
+// plot(A[0],cmm="A[0]",fill=1,wait=1);
+// plot(A[1],cmm="A[1]",fill=1,wait=1);
+// plot(A[2],cmm="A[2]",fill=1,wait=1);
+
+for(n=0;n<(mm-3)/2;n=n+1){ 
+
+  solve Prob4(AAz,w) = int2d(Ths)(nuST*dx(AAz)*dx(w)+nuST*dy(AAz)*dy(w))-int1d(Ths,SS)((fc)*w)+on(statorOuterBorder,AAz=0);
+  A[2*n+3]=AAz;
+
+  solve Prob5(AAz,w) = int2d(Ths)(nuST*dx(AAz)*dx(w)+nuST*dy(AAz)*dy(w))-int1d(Ths,SS)((fs)*w)+on(statorOuterBorder,AAz=0);
+  A[2*n+4]=AAz;
+
+}
+plot(A[4],cmm="A[4]",wait=1);
+plot(A[6],cmm="A[6]",wait=1);
+plot(A[8],cmm="A[8]",wait=1);
+plot(A[10],cmm="A[10]",wait=1);
+plot(A[12],cmm="A[12]",wait=1);
+
+for (i=0;i<mm;i=i+1){
+  for (int j=0;j<mm;j=j+1){
+   lambda(i,j) = int2d(Ths)(nuST*(dy(A[i])*dy(A[j])+dx(A[i])*dx(A[j])));
+  }
+}
+
+Lambda=lambda/2;
+cout<<Lambda<<endl;
+fidiStator<<Lambda<<endl;
